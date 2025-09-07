@@ -15,9 +15,11 @@
     "d3": "^7.9.0",
     "immutable": "^5.0.3",
     "immutable-sorted": "^0.2.11",
+    "opencv.js": "^1.2.1",
     "posthog-js": "^1.257.0",
     "preact": "^10.18.1",
     "preact-i18n": "^2.4.0-preactx",
+    "tesseract.js": "^6.0.1",
     "unassert-cli": "github:unassert-js/unassert-cli"
   }
 }

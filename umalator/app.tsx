@@ -7,6 +7,7 @@ import { computePosition, flip } from '@floating-ui/dom';
 
 import { CourseHelpers } from '../uma-skill-tools/CourseData';
 import { RaceParameters, Mood, GroundCondition, Weather, Season, Time, Grade } from '../uma-skill-tools/RaceParameters';
+import { Strategy, Aptitude } from '../uma-skill-tools/HorseTypes';
 import type { GameHpPolicy } from '../uma-skill-tools/HpPolicy';
 
 import { Language, LanguageSelect, useLanguageSelect } from '../components/Language';
@@ -14,9 +15,10 @@ import { ExpandedSkillDetails, STRINGS_en as SKILL_STRINGS_en } from '../compone
 import { RaceTrack, TrackSelect, RegionDisplayType } from '../components/RaceTrack';
 import { HorseState, SkillSet } from '../components/HorseDefTypes';
 import { HorseDef, horseDefTabs } from '../components/HorseDef';
+import { TemplateBasedImageParser } from '../components/TemplateBasedImageParser';
 import { TRACKNAMES_ja, TRACKNAMES_en } from '../strings/common';
 
-import { getActivateableSkills, getNullRow, runBasinnChart, BasinnChart } from './BasinnChart';
+import { getActivateableSkills, getNullRow, BasinnChart } from './BasinnChart';
 
 import { initTelemetry, postEvent } from './telemetry';
 
@@ -25,6 +27,7 @@ import { IntroText } from './IntroText';
 import skilldata from '../uma-skill-tools/data/skill_data.json';
 import skillnames from '../uma-skill-tools/data/skillnames.json';
 import skill_meta from '../skill_meta.json';
+import umas from '../umas.json';
 
 function skillmeta(id: string) {
 	// handle the fake skills (e.g., variations of Sirius unique) inserted by make_skill_data with ids like 100701-1
@@ -32,6 +35,10 @@ function skillmeta(id: string) {
 }
 
 import './app.css';
+import '../components/ImageParser.css';
+
+// Global constants defined by build system
+declare const CC_GLOBAL: boolean;
 
 const DEFAULT_SAMPLES = 500;
 const DEFAULT_SEED = 2615953739;
@@ -104,7 +111,7 @@ function TimeOfDaySelect(props) {
 	return (
 		<div class="timeofdaySelect" onClick={click}>
 			{Array(3).fill(0).map((_,i) =>
-				<img src={`/uma-tools/icons/utx_ico_timezone_0${i}.png`} title={SKILL_STRINGS_en.skilldetails.time[i+2]}
+				<img src={`/uma-tools/icons/utx_ico_timezone_0${i}.png`} title={String(SKILL_STRINGS_en.skilldetails.time[i+2] || '')}
 					class={i+2 == props.value ? 'selected' : ''} data-timeofday={i+2} />)}
 		</div>
 	);
@@ -210,7 +217,7 @@ function BasinnChartPopover(props) {
 		popover.current.focus();
 	}, [popover.current, props.skillid]);
 	return (
-		<div class="basinnChartPopover" tabindex="1000" style="visibility:hidden" ref={popover}>
+		<div class="basinnChartPopover" tabIndex={1000} style="visibility:hidden" ref={popover}>
 			<ExpandedSkillDetails id={props.skillid} distanceFactor={props.courseDistance} dismissable={false} />
 			<Histogram width={500} height={333} data={props.results} />
 		</div>
@@ -435,11 +442,14 @@ function App(props) {
 			return merged;
 		}
 		data.forEach((v,k) => merged.set(k,v));
-		newData.forEach((v,k) => merged.set(k,v));
+		if (newData instanceof Map) {
+			newData.forEach((v,k) => merged.set(k,v));
+		}
 		return merged;
 	}, new Map());
 
 	const [popoverSkill, setPopoverSkill] = useState('');
+	const [parsedUmaData, setParsedUmaData] = useState(null);
 
 	function racesetter(prop) {
 		return (value) => setRaceDef(racedef.set(prop, value));
@@ -584,6 +594,233 @@ function App(props) {
 		document.getElementById('rtMouseOverBox').style.display = 'none';
 	}
 
+	function handleImageParsed(data) {
+		console.log('Parsed Uma data:', data);
+		setParsedUmaData(data);
+		
+		// Convert parsed data to HorseState and apply to current uma
+		const horseState = convertParsedDataToHorseState(data);
+		console.log('Converted HorseState:', horseState.toJS());
+		
+		if (currentIdx === 0) {
+			setUma1(horseState);
+			console.log('Applied to Uma 1');
+		} else {
+			setUma2(horseState);
+			console.log('Applied to Uma 2');
+		}
+	}
+
+	function handleImageParseError(error) {
+		alert(`Image parsing failed: ${error}`);
+	}
+
+	function convertParsedDataToHorseState(data) {
+		let horseState = new HorseState();
+		
+		// Find matching Uma by outfit and name
+		const umaId = findMatchingUma(data.outfit, data.name);
+		if (umaId) {
+			horseState = horseState.set('outfitId', umaId);
+			console.log('Found matching Uma:', umaId);
+		}
+		
+		// Set stats
+		horseState = horseState.set('speed', data.stats.speed);
+		horseState = horseState.set('stamina', data.stats.stamina);
+		horseState = horseState.set('power', data.stats.power);
+		horseState = horseState.set('guts', data.stats.guts);
+		horseState = horseState.set('wisdom', data.stats.wisdom);
+
+		// Find highest aptitudes and set strategy based on highest style aptitude
+		const surfaceAptitudes = [data.aptitudes.track.turf, data.aptitudes.track.dirt];
+		const distanceAptitudes = [data.aptitudes.distance.sprint, data.aptitudes.distance.mile, data.aptitudes.distance.medium, data.aptitudes.distance.long];
+		const styleAptitudes = [data.aptitudes.style.front, data.aptitudes.style.pace, data.aptitudes.style.late, data.aptitudes.style.end];
+		
+		const highestSurface = getHighestAptitude(surfaceAptitudes);
+		const highestDistance = getHighestAptitude(distanceAptitudes);
+		const highestStyle = getHighestAptitude(styleAptitudes);
+		
+		// Set strategy based on highest style aptitude
+		const strategy = getStrategyFromAptitude(data.aptitudes.style, highestStyle);
+		
+		// Set aptitudes to highest values
+		horseState = horseState.set('surfaceAptitude', highestSurface);
+		horseState = horseState.set('distanceAptitude', highestDistance);
+		horseState = horseState.set('strategyAptitude', highestStyle);
+		horseState = horseState.set('strategy', strategy);
+
+		// Add matched skills
+		const matchedSkills = findMatchingSkills(data.skills);
+		if (matchedSkills.length > 0) {
+			horseState = horseState.set('skills', SkillSet(matchedSkills));
+			console.log('Added skills:', matchedSkills);
+		}
+
+		return horseState;
+	}
+
+	function getHighestAptitude(aptitudes: string[]): string {
+		const aptitudeOrder = ['S', 'A', 'B', 'C', 'D', 'E', 'F', 'G'];
+		let highest = 'G';
+		let highestIndex = aptitudeOrder.length - 1;
+		
+		for (const aptitude of aptitudes) {
+			const index = aptitudeOrder.indexOf(aptitude);
+			if (index !== -1 && index < highestIndex) {
+				highest = aptitude;
+				highestIndex = index;
+			}
+		}
+		
+		return highest;
+	}
+
+	function getStrategyFromAptitude(styleAptitudes: any, highestStyle: string): string {
+		// Find which style has the highest aptitude and return corresponding strategy
+		if (styleAptitudes.front === highestStyle) {
+			return 'Senkou';
+		} else if (styleAptitudes.pace === highestStyle) {
+			return 'Senkou';
+		} else if (styleAptitudes.late === highestStyle) {
+			return 'Oikomi';
+		} else if (styleAptitudes.end === highestStyle) {
+			return 'Oikomi';
+		} else {
+			return 'Sasi'; // Default fallback
+		}
+	}
+
+	function findMatchingUma(outfit: string, name: string): string | null {
+		// Try to find by outfit first (more specific)
+		if (outfit && outfit.trim()) {
+			for (const [umaId, umaData] of Object.entries(umas)) {
+				const uma = umaData as any;
+				for (const [outfitId, outfitName] of Object.entries(uma.outfits)) {
+					if (fuzzyMatch(outfitName as string, outfit)) {
+						console.log(`Matched outfit: "${outfitName}" -> "${outfit}"`);
+						return outfitId;
+					}
+				}
+			}
+		}
+		
+		// Fallback to name matching
+		if (name && name.trim()) {
+			for (const [umaId, umaData] of Object.entries(umas)) {
+				const uma = umaData as any;
+				if (fuzzyMatch(uma.name[1], name)) {
+					console.log(`Matched name: "${uma.name[1]}" -> "${name}"`);
+					// Return the first outfit for this uma
+					return Object.keys(uma.outfits)[0];
+				}
+			}
+		}
+		
+		return null;
+	}
+
+	function fuzzyMatch(str1: string, str2: string): boolean {
+		// Simple fuzzy matching - normalize strings and check if one contains the other
+		const normalize = (s: string) => s.toLowerCase().replace(/[^\w\s]/g, '').trim();
+		const n1 = normalize(str1);
+		const n2 = normalize(str2);
+		
+		// Check if either string contains the other (for partial matches)
+		return n1.includes(n2) || n2.includes(n1) || 
+			   // Or check for high similarity
+			   calculateSimilarity(n1, n2) > 0.7;
+	}
+
+	function calculateSimilarity(str1: string, str2: string): number {
+		// Simple Levenshtein distance-based similarity
+		const longer = str1.length > str2.length ? str1 : str2;
+		const shorter = str1.length > str2.length ? str2 : str1;
+		
+		if (longer.length === 0) return 1.0;
+		
+		const distance = levenshteinDistance(longer, shorter);
+		return (longer.length - distance) / longer.length;
+	}
+
+	function levenshteinDistance(str1: string, str2: string): number {
+		const matrix = [];
+		
+		for (let i = 0; i <= str2.length; i++) {
+			matrix[i] = [i];
+		}
+		
+		for (let j = 0; j <= str1.length; j++) {
+			matrix[0][j] = j;
+		}
+		
+		for (let i = 1; i <= str2.length; i++) {
+			for (let j = 1; j <= str1.length; j++) {
+				if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+					matrix[i][j] = matrix[i - 1][j - 1];
+				} else {
+					matrix[i][j] = Math.min(
+						matrix[i - 1][j - 1] + 1,
+						matrix[i][j - 1] + 1,
+						matrix[i - 1][j] + 1
+					);
+				}
+			}
+		}
+		
+		return matrix[str2.length][str1.length];
+	}
+
+	function findMatchingSkills(parsedSkills: string[]): string[] {
+		const matchedSkills: string[] = [];
+		
+		for (const parsedSkill of parsedSkills) {
+			if (!parsedSkill || !parsedSkill.trim()) continue;
+			
+			// Try to find matching skill by name
+			const skillId = findMatchingSkill(parsedSkill);
+			if (skillId) {
+				matchedSkills.push(skillId);
+				console.log(`Matched skill: "${parsedSkill}" -> ${skillId}`);
+			} else {
+				console.log(`No match found for skill: "${parsedSkill}"`);
+			}
+		}
+		
+		return matchedSkills;
+	}
+
+	function findMatchingSkill(skillName: string): string | null {
+		let bestMatch = null;
+		let bestSimilarity = 0;
+		
+		for (const [skillId, names] of Object.entries(skillnames)) {
+			const skillNames = names as string[];
+			
+			// Check both Japanese and English names
+			for (const name of skillNames) {
+				if (fuzzyMatch(name, skillName)) {
+					const similarity = calculateSimilarity(
+						normalizeString(name), 
+						normalizeString(skillName)
+					);
+					
+					if (similarity > bestSimilarity) {
+						bestMatch = skillId;
+						bestSimilarity = similarity;
+					}
+				}
+			}
+		}
+		
+		// Only return if similarity is above threshold
+		return bestSimilarity > 0.6 ? bestMatch : null;
+	}
+
+	function normalizeString(s: string): string {
+		return s.toLowerCase().replace(/[^\w\s]/g, '').trim();
+	}
+
 	const mid = Math.floor(results.length / 2);
 	const median = results.length % 2 == 0 ? (results[mid-1] + results[mid]) / 2 : results[mid];
 	const mean = results.reduce((a,b) => a+b, 0) / results.length;
@@ -592,17 +829,21 @@ function App(props) {
 		{stroke: 'rgb(42, 119, 197)', fill: 'rgba(42, 119, 197, 0.7)'},
 		{stroke: 'rgb(197, 42, 42)', fill: 'rgba(197, 42, 42, 0.7)'}
 	];
-	const skillActivations = chartData == null ? [] : chartData.sk.flatMap((a,i) => {
-		return Array.from(a.keys()).flatMap(id => {
-			if (NO_SHOW.indexOf(skillmeta(id).iconId) > -1) return [];
-			else return a.get(id).map(ar => ({
-				type: RegionDisplayType.Textbox,
-				color: colors[i],
-				text: skillnames[id][0],
-				regions: [{start: ar[0], end: ar[1]}]
-			}));
-		});
-	});
+	const skillActivations = chartData == null ? [] : (chartData.sk as any[]).reduce((acc, a, i) => {
+		const skills = Array.from(a.keys()).reduce((skillAcc: any[], id: string) => {
+			if (NO_SHOW.indexOf(skillmeta(id).iconId) > -1) return skillAcc;
+			else {
+				const activations = a.get(id).map((ar: any) => ({
+					type: RegionDisplayType.Textbox,
+					color: colors[i],
+					text: skillnames[id][0],
+					regions: [{start: ar[0], end: ar[1]}]
+				}));
+				return skillAcc.concat(activations);
+			}
+		}, []);
+		return acc.concat(skills);
+	}, []);
 
 	const umaTabs = (
 		<Fragment>
@@ -681,7 +922,7 @@ function App(props) {
 		resultsPane = (
 			<div id="resultsPaneWrapper">
 				<div id="resultsPane" class="mode-chart">
-					<BasinnChart data={tableData.values().toArray()} hidden={uma1.skills}
+					<BasinnChart data={Array.from(tableData.values())} hidden={uma1.skills}
 						onSelectionChange={basinnChartSelection}
 						onRunTypeChange={setChartData}
 						onDblClickRow={addSkillFromTable}
@@ -759,6 +1000,12 @@ function App(props) {
 					</div>
 				</div>
 				{resultsPane}
+				<div id="imageParserPane">
+					<TemplateBasedImageParser 
+						onDataParsed={handleImageParsed}
+						onError={handleImageParseError}
+					/>
+				</div>
 				{expanded && <div id="umaPane" />}
 				<div id={expanded ? 'umaOverlay' : 'umaPane'}>
 					<div class={!expanded && currentIdx == 0 ? 'selected' : ''}>
