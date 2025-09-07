@@ -774,28 +774,41 @@ function App(props) {
 	function findMatchingSkills(parsedSkills: string[]): string[] {
 		const matchedSkills: string[] = [];
 		
-		for (const parsedSkill of parsedSkills) {
+		for (let i = 0; i < parsedSkills.length; i++) {
+			const parsedSkill = parsedSkills[i];
 			if (!parsedSkill || !parsedSkill.trim()) continue;
 			
-			// Try to find matching skill by name
-			const skillId = findMatchingSkill(parsedSkill);
+			// First skill (top left) is the unique skill - only match from 10... pool
+			// All other skills should not match from 10... pool (inherited uniques use 90...)
+			const isUniqueSkill = i === 0;
+			const skillId = findMatchingSkill(parsedSkill, isUniqueSkill);
+			
 			if (skillId) {
 				matchedSkills.push(skillId);
-				console.log(`Matched skill: "${parsedSkill}" -> ${skillId}`);
+				console.log(`Matched skill: "${parsedSkill}" -> ${skillId} (${isUniqueSkill ? 'unique' : 'inherited/regular'})`);
 			} else {
-				console.log(`No match found for skill: "${parsedSkill}"`);
+				console.log(`No match found for skill: "${parsedSkill}" (${isUniqueSkill ? 'unique' : 'inherited/regular'})`);
 			}
 		}
 		
 		return matchedSkills;
 	}
 
-	function findMatchingSkill(skillName: string): string | null {
+	function findMatchingSkill(skillName: string, isUniqueSkill: boolean = false): string | null {
 		let bestMatch = null;
 		let bestSimilarity = 0;
 		
 		for (const [skillId, names] of Object.entries(skillnames)) {
 			const skillNames = names as string[];
+			
+			// Filter skill pool based on whether this is a unique skill
+			if (isUniqueSkill) {
+				// For unique skills, only match from 10... pool (original uniques)
+				if (!skillId.startsWith('10')) continue;
+			} else {
+				// For non-unique skills, exclude 10... pool (use 90... inherited uniques and regular skills)
+				if (skillId.startsWith('10')) continue;
+			}
 			
 			// Check both Japanese and English names
 			for (const name of skillNames) {
