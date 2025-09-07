@@ -133,11 +133,14 @@ function generateSkillRegions(imageHeight: number, scale: number, offset: { x: n
 	return skillRegions;
 }
 
+type ParsingMode = 'fast' | 'high-accuracy';
+
 export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserProps) {
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [progress, setProgress] = useState(0);
 	const [lastParsedData, setLastParsedData] = useState<ParsedUmaData | null>(null);
 	const [processingStage, setProcessingStage] = useState('');
+	const [parsingMode, setParsingMode] = useState<ParsingMode>('fast');
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const fakeProgressInterval = useRef<number | null>(null);
 
@@ -508,7 +511,7 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 			// Binary search for optimal scale
 			let minScale = 0.3;
 			let maxScale = 2.0;
-			const maxSteps = 10;
+			const maxSteps = parsingMode === 'fast' ? 5 : 10;
 			let stepCount = 0;
 			
 			// Test a scale and return confidence
@@ -740,6 +743,20 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 	return (
 		<div class="imageParser">
 			<h3>Parse Uma from Image (Template-Based)</h3>
+			<div class="parserControls">
+				<div class="modeSelector">
+					<label for="parsingMode">Mode:</label>
+					<select
+						id="parsingMode"
+						value={parsingMode}
+						onChange={(e) => setParsingMode((e.target as HTMLSelectElement).value as ParsingMode)}
+						disabled={isProcessing}
+					>
+						<option value="fast">Fast (5 steps)</option>
+						<option value="high-accuracy">High Accuracy (10 steps)</option>
+					</select>
+				</div>
+			</div>
 			<div class="uploadArea">
 				<input
 					type="file"
