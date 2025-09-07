@@ -1000,18 +1000,18 @@ function App(props) {
 					</div>
 				</div>
 				{resultsPane}
-				<div id="imageParserPane">
-					<TemplateBasedImageParser 
-						onDataParsed={handleImageParsed}
-						onError={handleImageParseError}
-					/>
-				</div>
 				{expanded && <div id="umaPane" />}
 				<div id={expanded ? 'umaOverlay' : 'umaPane'}>
 					<div class={!expanded && currentIdx == 0 ? 'selected' : ''}>
 						<HorseDef key={uma1.outfitId} state={uma1} setState={setUma1} courseDistance={course.distance} tabstart={() => 4}>
 							{expanded ? 'Umamusume 1' : umaTabs}
 						</HorseDef>
+						<div id="imageParserPane">
+							<TemplateBasedImageParser 
+								onDataParsed={handleImageParsed}
+								onError={handleImageParseError}
+							/>
+						</div>
 					</div>
 					{expanded &&
 						<div id="copyUmaButtons">
