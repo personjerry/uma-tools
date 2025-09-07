@@ -83,12 +83,55 @@ const DATA_REGIONS: DataRegion[] = [
 	{ name: 'late_aptitude', x: 770, y: 672, width: 40, height: 40, type: 'aptitudes' },
 	{ name: 'end_aptitude', x: 960, y: 672, width: 40, height: 40, type: 'aptitudes' },
 	
-	// Skills (first 4, we'll add more dynamically)
-	{ name: 'skill_1', x: 112, y: 864, width: 320, height: 68, type: 'skills' },
-	{ name: 'skill_2', x: 615, y: 864, width: 320, height: 68, type: 'skills' },
-	{ name: 'skill_3', x: 112, y: 976, width: 320, height: 68, type: 'skills' },
-	{ name: 'skill_4', x: 615, y: 976, width: 320, height: 68, type: 'skills' }
+	// Skills will be generated dynamically based on image height
 ];
+
+// Generate skill regions dynamically based on image height
+function generateSkillRegions(imageHeight: number, scale: number, offset: { x: number; y: number }): DataRegion[] {
+	const skillRegions: DataRegion[] = [];
+	const skillYInterval = 112; // Y interval between skills
+	const startY = 864; // Starting Y position for first skill row
+	const leftX = 112; // Left column X position
+	const rightX = 615; // Right column X position
+	const skillWidth = 320;
+	const skillHeight = 68;
+	
+	let skillIndex = 1;
+	let currentY = startY;
+	
+	// Continue adding skills until we go past the image bounds
+	while (currentY + skillHeight < imageHeight) {
+		// Left column skill
+		const leftSkillRegion = {
+			name: `skill_${skillIndex}`,
+			x: Math.round(leftX * scale + offset.x),
+			y: Math.round(currentY * scale + offset.y),
+			width: Math.round(skillWidth * scale),
+			height: Math.round(skillHeight * scale),
+			type: 'skills' as const
+		};
+		skillRegions.push(leftSkillRegion);
+		skillIndex++;
+		
+		// Right column skill
+		const rightSkillRegion = {
+			name: `skill_${skillIndex}`,
+			x: Math.round(rightX * scale + offset.x),
+			y: Math.round(currentY * scale + offset.y),
+			width: Math.round(skillWidth * scale),
+			height: Math.round(skillHeight * scale),
+			type: 'skills' as const
+		};
+		skillRegions.push(rightSkillRegion);
+		skillIndex++;
+		
+		// Move to next row
+		currentY += skillYInterval;
+	}
+	
+	console.log(`Generated ${skillRegions.length} skill regions for image height ${imageHeight}`);
+	return skillRegions;
+}
 
 export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserProps) {
 	const [isProcessing, setIsProcessing] = useState(false);
@@ -201,6 +244,7 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 			setProcessingStage('Extracting data from regions...');
 			const extractedData: { [key: string]: string } = {};
 			
+			// Process static regions first
 			for (const region of DATA_REGIONS) {
 				const adjustedRegion = adjustRegion(region, scales, offset);
 				const regionImage = extractRegion(uploadedImage, adjustedRegion);
@@ -208,6 +252,22 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 				
 				extractedData[region.name] = text;
 				console.log(`Extracted ${region.name}:`, text);
+			}
+			
+			// Generate and process dynamic skill regions
+			const skillRegions = generateSkillRegions(uploadedImage.height, scales.scaleY, offset);
+			for (const region of skillRegions) {
+				// Check if region is within image bounds
+				if (region.x >= 0 && region.y >= 0 && 
+					region.x + region.width <= uploadedImage.width && 
+					region.y + region.height <= uploadedImage.height) {
+					
+					const regionImage = extractRegion(uploadedImage, region);
+					const text = await ocrRegion(regionImage);
+					
+					extractedData[region.name] = text;
+					console.log(`Extracted ${region.name}:`, text);
+				}
 			}
 
 			// Parse the extracted data
@@ -649,13 +709,18 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 			}
 		};
 		
-		// Parse skills
-		const skills = [
-			data.skill_1,
-			data.skill_2,
-			data.skill_3,
-			data.skill_4
-		].filter(skill => skill && skill.length > 0);
+		// Parse skills dynamically - collect all skill_* entries
+		const skills: string[] = [];
+		let skillIndex = 1;
+		
+		// Continue parsing skills until we find no more
+		while (data[`skill_${skillIndex}`] !== undefined) {
+			const skillText = data[`skill_${skillIndex}`];
+			if (skillText && skillText.trim()) {
+				skills.push(skillText.trim());
+			}
+			skillIndex++;
+		}
 		
 		return { outfit, name, stats, aptitudes, skills };
 	};
