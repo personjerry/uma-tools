@@ -142,6 +142,11 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 	const [lastParsedData, setLastParsedData] = useState<ParsedUmaData | null>(null);
 	const [processingStage, setProcessingStage] = useState('');
 	const [parsingMode, setParsingMode] = useState<ParsingMode>('fast');
+	const [showVisualization, setShowVisualization] = useState(false);
+	const [visualizationData, setVisualizationData] = useState<{
+		imageUrl: string;
+		regions: Array<{ name: string; x: number; y: number; width: number; height: number; type: string }>;
+	} | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const fakeProgressInterval = useRef<number | null>(null);
 
@@ -247,6 +252,7 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 			// Extract data from each region
 			setProcessingStage('Extracting data from regions...');
 			const extractedData: { [key: string]: string } = {};
+			const allRegions: Array<{ name: string; x: number; y: number; width: number; height: number; type: string }> = [];
 			
 			// Process static regions first
 			for (const region of DATA_REGIONS) {
@@ -255,6 +261,14 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 				const text = await ocrRegion(regionImage);
 				
 				extractedData[region.name] = text;
+				allRegions.push({
+					name: region.name,
+					x: adjustedRegion.x,
+					y: adjustedRegion.y,
+					width: adjustedRegion.width,
+					height: adjustedRegion.height,
+					type: region.type
+				});
 				console.log(`Extracted ${region.name}:`, text);
 			}
 			
@@ -270,9 +284,43 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 					const text = await ocrRegion(regionImage);
 					
 					extractedData[region.name] = text;
+					allRegions.push({
+						name: region.name,
+						x: region.x,
+						y: region.y,
+						width: region.width,
+						height: region.height,
+						type: region.type
+					});
 					console.log(`Extracted ${region.name}:`, text);
 				}
 			}
+			
+			// Add template match regions to visualization
+			const templateRegions = [
+				{
+					name: 'change_template',
+					x: changeMatch.x,
+					y: changeMatch.y,
+					width: Math.round(changeTemplate.width * changeMatch.scaleX),
+					height: Math.round(changeTemplate.height * changeMatch.scaleY),
+					type: 'template'
+				},
+				{
+					name: 'headers_template',
+					x: headersMatch.x,
+					y: headersMatch.y,
+					width: Math.round(headersTemplate.width * headersMatch.scaleX),
+					height: Math.round(headersTemplate.height * headersMatch.scaleY),
+					type: 'template'
+				}
+			];
+			
+			// Store visualization data
+			setVisualizationData({
+				imageUrl: URL.createObjectURL(file),
+				regions: [...allRegions, ...templateRegions]
+			});
 
 			// Parse the extracted data
 			const parsedData = parseExtractedData(extractedData);
@@ -820,6 +868,92 @@ export function TemplateBasedImageParser({ onDataParsed, onError }: ImageParserP
 							))}
 						</div>
 					)}
+					
+					{visualizationData && (
+						<div class="visualizationControls">
+							<button
+								onClick={() => setShowVisualization(!showVisualization)}
+								class="visualizationToggle"
+							>
+								{showVisualization ? 'Hide' : 'Show'} Region Visualization
+							</button>
+						</div>
+					)}
+				</div>
+			)}
+			
+			{showVisualization && visualizationData && (
+				<div class="visualizationContainer">
+					<h4>OCR Region Visualization</h4>
+					<div class="imageWithOverlay">
+						<img 
+							src={visualizationData.imageUrl} 
+							alt="Original image with OCR regions"
+							ref={(img) => {
+								if (img) {
+									img.onload = () => {
+										const svg = img.nextElementSibling as SVGElement;
+										if (svg) {
+											// Set SVG dimensions to match the displayed image
+											svg.setAttribute('width', img.offsetWidth.toString());
+											svg.setAttribute('height', img.offsetHeight.toString());
+											
+											// Calculate scale factors
+											const scaleX = img.offsetWidth / img.naturalWidth;
+											const scaleY = img.offsetHeight / img.naturalHeight;
+											
+											// Update all rect elements with scaled coordinates
+											const rects = svg.querySelectorAll('rect');
+											rects.forEach((rect, index) => {
+												const region = visualizationData.regions[index];
+												if (region) {
+													rect.setAttribute('x', (region.x * scaleX).toString());
+													rect.setAttribute('y', (region.y * scaleY).toString());
+													rect.setAttribute('width', (region.width * scaleX).toString());
+													rect.setAttribute('height', (region.height * scaleY).toString());
+												}
+											});
+										}
+									};
+								}
+							}}
+						/>
+						<svg class="regionOverlay">
+							{visualizationData.regions.map((region, index) => (
+								<rect
+									key={index}
+									x={region.x}
+									y={region.y}
+									width={region.width}
+									height={region.height}
+									class={`regionBox region-${region.type}`}
+									title={`${region.name} (${region.type})`}
+								/>
+							))}
+						</svg>
+					</div>
+					<div class="regionLegend">
+						<div class="legendItem">
+							<div class="legendColor region-stats"></div>
+							<span>Stats</span>
+						</div>
+						<div class="legendItem">
+							<div class="legendColor region-aptitudes"></div>
+							<span>Aptitudes</span>
+						</div>
+						<div class="legendItem">
+							<div class="legendColor region-skills"></div>
+							<span>Skills</span>
+						</div>
+						<div class="legendItem">
+							<div class="legendColor region-uma"></div>
+							<span>Uma Info</span>
+						</div>
+						<div class="legendItem">
+							<div class="legendColor region-template"></div>
+							<span>Templates</span>
+						</div>
+					</div>
 				</div>
 			)}
 		</div>
