@@ -164,6 +164,10 @@
 	stroke: #96ceb4;
 }
 
+.region-name {
+	stroke: #96ceb4;
+}
+
 .region-template {
 	stroke: #ff9f43;
 	stroke-width: 3;
@@ -202,6 +206,10 @@
 }
 
 .legendColor.region-uma {
+	background: #96ceb4;
+}
+
+.legendColor.region-name {
 	background: #96ceb4;
 }
 
