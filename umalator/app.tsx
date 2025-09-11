@@ -813,10 +813,21 @@ function App(props) {
 			// Check both Japanese and English names
 			for (const name of skillNames) {
 				if (fuzzyMatch(name, skillName)) {
-					const similarity = calculateSimilarity(
+					let similarity = calculateSimilarity(
 						normalizeString(name), 
 						normalizeString(skillName)
 					);
+					
+					// Apply tier-based matching bonus for skills with variants
+					const originalSimilarity = similarity;
+					similarity = applyTierMatchingBonus(name, skillName, similarity);
+					
+					// Debug logging for tier matching
+					if (originalSimilarity !== similarity) {
+						const skillTier = extractTierSymbol(name);
+						const parsedTier = extractTierSymbol(skillName);
+						console.log(`Tier match: "${skillName}" -> "${name}" (${skillTier} vs ${parsedTier}) ${originalSimilarity.toFixed(3)} -> ${similarity.toFixed(3)}`);
+					}
 					
 					if (similarity > bestSimilarity) {
 						bestMatch = skillId;
@@ -832,6 +843,75 @@ function App(props) {
 
 	function normalizeString(s: string): string {
 		return s.toLowerCase().replace(/[^\w\s]/g, '').trim();
+	}
+
+	function applyTierMatchingBonus(skillName: string, parsedSkill: string, baseSimilarity: number): number {
+		// Check if this skill has tier variants (◎, ○, ×)
+		const hasTierVariants = skillName.includes('◎') || skillName.includes('○') || skillName.includes('×');
+		
+		if (!hasTierVariants) {
+			return baseSimilarity; // No bonus for non-tier skills
+		}
+		
+		// Extract the tier symbol from both strings
+		const skillTier = extractTierSymbol(skillName);
+		const parsedTier = extractTierSymbol(parsedSkill);
+		
+		// Apply tier matching bonus
+		if (skillTier && parsedTier) {
+			if (skillTier === parsedTier) {
+				// Exact tier match - very significant bonus (can exceed 1.0)
+				return baseSimilarity + 0.5;
+			} else if (isTierCompatible(skillTier, parsedTier)) {
+				// Compatible tier match - significant bonus
+				return Math.min(1.0, baseSimilarity + 0.3);
+			} else {
+				// Incompatible tier match - penalty
+				return Math.max(0.0, baseSimilarity - 0.2);
+			}
+		}
+		
+		return baseSimilarity;
+	}
+
+	function extractTierSymbol(text: string): string | null {
+		// Look for tier symbols at the end of the string
+		// Also handle common OCR mistakes
+		const tierMatch = text.match(/[◎○×©®™]/);
+		if (tierMatch) {
+			console.log(`Extracted tier symbol: "${text}" -> "${tierMatch[0]}"`);
+			return tierMatch[0];
+		}
+		
+		// Handle common OCR mistakes
+		// "O" at the end often means "○" (single circle)
+		if (text.trim().endsWith(' O')) {
+			console.log(`Extracted tier symbol: "${text}" -> "○" (from O)`);
+			return '○';
+		}
+		
+		// "©" often means "◎" (double circle) in OCR
+		if (text.includes('©')) {
+			console.log(`Extracted tier symbol: "${text}" -> "©" (copyright)`);
+			return '©';
+		}
+		
+		console.log(`No tier symbol found in: "${text}"`);
+		return null;
+	}
+
+	function isTierCompatible(skillTier: string, parsedTier: string): boolean {
+		// Define tier compatibility rules
+		const tierMap: { [key: string]: string[] } = {
+			'◎': ['○', '©', '®', '™'], // Double circle matches single circle or copyright-like symbols
+			'○': ['◎', '©', '®', '™'], // Single circle matches double circle or copyright-like symbols
+			'×': ['×'], // X only matches X
+			'©': ['◎', '○'], // Copyright symbol matches circles
+			'®': ['◎', '○'], // Registered symbol matches circles
+			'™': ['◎', '○']  // Trademark symbol matches circles
+		};
+		
+		return tierMap[skillTier]?.includes(parsedTier) || false;
 	}
 
 	const mid = Math.floor(results.length / 2);
