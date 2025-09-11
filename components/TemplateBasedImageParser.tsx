@@ -100,7 +100,8 @@ function generateSkillRegions(imageHeight: number, scale: number, offset: { x: n
 	let currentY = startY;
 	
 	// Continue adding skills until we go past the image bounds
-	while (currentY + skillHeight < imageHeight) {
+	// Use scaled coordinates for boundary checking
+	while (Math.round(currentY * scale + offset.y) + Math.round(skillHeight * scale) < imageHeight) {
 		// Left column skill
 		const leftSkillRegion = {
 			name: `skill_${skillIndex}`,
@@ -129,7 +130,7 @@ function generateSkillRegions(imageHeight: number, scale: number, offset: { x: n
 		currentY += skillYInterval;
 	}
 	
-	console.log(`Generated ${skillRegions.length} skill regions for image height ${imageHeight}`);
+	console.log(`Generated ${skillRegions.length} skill regions for image height ${imageHeight} (scale: ${scale.toFixed(3)})`);
 	return skillRegions;
 }
 
